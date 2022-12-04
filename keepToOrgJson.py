@@ -5,6 +5,8 @@ import html
 import sys
 import datetime
 import json
+import argparse
+from shutil import copy2
 
 """
 KeepToOrg.py
@@ -23,6 +25,7 @@ based on tags. This will also format lists and try to be smart.
 
 # Convert an array of tags to an Emacs Org tag string
 # Tags have the syntax :tag: or :tag1:tag2:
+
 def tagsToOrgString(tags):
     if len(tags) == 0:
         return ""
@@ -42,6 +45,7 @@ class Note:
         self.archived = False
         # If no date can be parsed, set it to Jan 1, 2000
         self.date = datetime.datetime(2000, 1, 1)
+        self.images = []
 
     def toOrgString(self):
         # status = '(archived) ' if self.archived else ''
@@ -79,8 +83,13 @@ class Note:
         for tag in self.tags:
             body = body.replace("#{}".format(tag), "")
 
+        # add image links:
+        imageLinks = ["[[file:" + place + "]]" for place in self.images]
+        
+        
         # Remove any leading/trailing whitespace (possibly leftover from tags stripping)
         body = body.strip()
+        body += ("\n".join(imageLinks))
 
         # Make a title if necessary
         orgTitle = title
@@ -126,7 +135,7 @@ def getAllNoteHtmlFiles(htmlDir):
             ending = ".json"
             if file.endswith(ending):
                 jsonFiles.append(os.path.join(root, file))
-    print("Found {} notes".format(len(noteHtmlFiles)))
+    print("Found {} notes".format(len(jsonFiles)))
 
     return jsonFiles
 
@@ -144,27 +153,22 @@ def makeSafeFilename(strToPurify):
     return strToPurify
 
 
-def main(keepHtmlDir, outputDir):
-    noteFiles, jsonFiles = getAllNoteHtmlFiles(keepHtmlDir)
+def main(keepHtmlDir, outputDir, includeArchived, splitByTag):
+    jsonFiles = getAllNoteHtmlFiles(keepHtmlDir)
 
     noteGroups = {}
 
-    for i, noteFilePath in enumerate(noteFiles):
+    for i, jsonFile in enumerate(jsonFiles):
         # Read in the file
 
-        jsonFile = open(jsonFiles[i])
+        jsonFile = open(jsonFile, "r")
         jsonString = jsonFile.read()
         jsonFile.close()
         meta_data = json.loads(jsonString)
 
-        # print('Parsing {}'.format(noteFilePath))
-
         note = Note()
 
-        readState = "lookingForAny"
-        numOpenedDivs = 0
-
-        if meta_data["isArchived"]:
+        if meta_data["isArchived"] or meta_data["isTrashed"]: # Treat trashed notes as archived (maybe ignore them instead?)
             note.archived = True
         note.date = datetime.datetime.fromtimestamp(
             meta_data["createdTimestampUsec"] / 1000000.0
@@ -172,7 +176,29 @@ def main(keepHtmlDir, outputDir):
 
         if meta_data["title"]:
             note.title = meta_data["title"]
-        note.body = meta_data["textContent"]
+        
+        if "textContent" in meta_data:
+            note.body = meta_data["textContent"]
+
+        elif "listContent" in meta_data:
+            print(meta_data["listContent"])
+            text = "\n".join([x['text'] for x in meta_data["listContent"]])
+            note.body = f"List:\n{text}"
+        else:
+            raise Exception("No textContent or listContent in note")
+        
+        # TODO: consider copying images to target file
+        if "attachments" in meta_data:
+            for attachment in meta_data["attachments"]:
+                copy2(attachment["filePath"], outputDir)
+                note.images.append(attachment["filePath"])
+        
+        if splitByTag:
+            for tag in note.tags: 
+                if tag in noteGroups:
+                    noteGroups[tag].append(note)
+                else:
+                    noteGroups[tag] = [note]
 
         if not note.tags:
             if "Untagged" in noteGroups:
@@ -180,55 +206,7 @@ def main(keepHtmlDir, outputDir):
             else:
                 noteGroups["Untagged"] = [note]
 
-        # for line in noteLines:
-        #     isMatch = False
 
-        #     numOpenedDivs += line.count("<div")
-        #     numOpenedDivs -= line.count("</div>")
-
-        #     if readState == "lookingForAny":
-        #         if '<span class="archived" title="Note archived">' in line:
-        #             note.archived = True
-
-        #         # Parse title
-        #         title, isMatch = getHtmlValueIfMatches(
-        #             line, '<div class="title">', "</div>"
-        #         )
-
-        #         if '<div class="content">' in line:
-        #             readState = "parsingBody"
-
-        #             # This isn't great; for same-line bodies, strip opening div
-        #             line = line.replace('<div class="content">', "")
-        #         # Parse the date
-
-        #         # Parse tags, if any
-        #         potentialTag, isMatch = getHtmlValueIfMatches(
-        #             line, '<span class="label-name">', "</span>"
-        #         )
-        #         if isMatch:
-        #             note.tags.append(potentialTag)
-        #             continue
-
-        #     # Parse body
-        #     if readState == "parsingBody":
-        #         if line.strip().lower() == "<br>":
-        #             line = "\n"
-
-        #         if line.strip().lower().endswith("</div>") and numOpenedDivs == 1:
-        #             line = line[: -(len("</div>") + 1)]
-        #             readState = "lookingForAny"
-
-        #         note.body += line.replace("<br>", "\n")
-
-        # Add to groups based on tags
-        # for tag in note.tags:
-        #     if tag in noteGroups:
-        #         noteGroups[tag].append(note)
-        #     else:
-        #         noteGroups[tag] = [note]
-
-    # We've parsed all the notes; write out the groups to separate .org files
     numNotesWritten = 0
     for tag, group in noteGroups.items():
         outFileName = "{}/{}.org".format(outputDir, makeSafeFilename(tag))
@@ -246,7 +224,7 @@ def main(keepHtmlDir, outputDir):
             else:
                 lines.append(note.toOrgString() + "\n")
 
-        if len(archivedLines):
+        if len(archivedLines) and includeArchived:
             lines = ["* *Archived*\n"] + archivedLines + lines
 
         outFile = open(outFileName, "w")
@@ -259,12 +237,13 @@ def main(keepHtmlDir, outputDir):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print(
-            "Wrong number of arguments!\nUsage:\n\tpython KeepToOrg.py /path/to/google/Keep output/dir"
-        )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("keepHtmlDir", help="Path to the directory containing the Keep HTML files")
+    parser.add_argument("outputDir", help="Path to the directory where the output Org files should be written")
+    parser.add_argument("includeArchived", help="Whether to include archived and deleted notes in the output", type=bool, default=False, required=False)
+    parser.add_argument("splitByTag", help="Whether to split notes by tag", type=bool, default=False, required=False)
+    args = parser.parse_args()
 
-    else:
-        keepHtmlDir = sys.argv[1]
-        outputDir = sys.argv[2]
-        main(keepHtmlDir, outputDir)
+    keepHtmlDir = args.keepHtmlDir
+    outputDir = args.outputDir
+    main(keepHtmlDir, outputDir, args.includeArchived, args.splitByTag)
