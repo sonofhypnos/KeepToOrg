@@ -245,8 +245,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("keepHtmlDir", help="Path to the directory containing the Keep HTML files")
     parser.add_argument("outputDir", help="Path to the directory where the output Org files should be written")
-    parser.add_argument("includeArchived", help="Whether to include archived and deleted notes in the output", type=bool, default=False, required=False)
-    parser.add_argument("splitByTag", help="Whether to split notes by tag", type=bool, default=False, required=False)
+    parser.add_argument("--includeArchived", help="Whether to include archived and deleted notes in the output", type=bool, default=False, required=False)
+    parser.add_argument("--splitByTag", help="Whether to split notes by tag", type=bool, default=False, required=False)
     args = parser.parse_args()
 
     keepHtmlDir = args.keepHtmlDir
