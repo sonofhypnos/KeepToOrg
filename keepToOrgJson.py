@@ -190,7 +190,12 @@ def main(keepHtmlDir, outputDir, includeArchived, splitByTag):
         # TODO: consider copying images to target file
         if "attachments" in meta_data:
             for attachment in meta_data["attachments"]:
-                copy2(attachment["filePath"], outputDir)
+                try:
+                    copy2(os.path.join(keepHtmlDir, attachment["filePath"]),outputDir)
+                #HACK: for reasons unclear to me some files are jpg but the note-filepaths have a .png extension. The below code fixes this.
+                except FileNotFoundError:
+                    copy2(os.path.join(keepHtmlDir, attachment["filePath"][:-3]+"jpg"),outputDir) 
+                    
                 note.images.append(attachment["filePath"])
         
         if splitByTag:
