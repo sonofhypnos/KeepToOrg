@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+from os.path import exists
 import html
 import sys
 import datetime
@@ -190,12 +191,12 @@ def main(keepHtmlDir, outputDir, includeArchived, splitByTag):
         # TODO: consider copying images to target file
         if "attachments" in meta_data:
             for attachment in meta_data["attachments"]:
-                try:
+                if exists(os.path.join(keepHtmlDir, attachment["filePath"])):
                     copy2(os.path.join(keepHtmlDir, attachment["filePath"]),outputDir)
-                #HACK: for reasons unclear to me some files are jpg but the note-filepaths have a .png extension. The below code fixes this.
-                except FileNotFoundError:
+                elif exists(os.path.join(keepHtmlDir, attachment["filePath"][:-3]+"jpg")):
                     copy2(os.path.join(keepHtmlDir, attachment["filePath"][:-3]+"jpg"),outputDir) 
-                    
+                elif exists(os.path.join(keepHtmlDir, attachment["filePath"][:-3]+"jpeg")):
+                    copy2(os.path.join(keepHtmlDir, attachment["filePath"][:-3]+"jpeg"),outputDir) 
                 note.images.append(attachment["filePath"])
         
         if splitByTag:
