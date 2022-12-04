@@ -2,6 +2,7 @@ import os
 import html
 import sys
 import datetime
+import json
 
 """
 KeepToOrg.py
@@ -99,14 +100,20 @@ class Note:
 def getAllNoteHtmlFiles(htmlDir):
     print('Looking for notes in {}'.format(htmlDir))
     noteHtmlFiles = []
+    jsonFiles = []
     for root, dirs, files in os.walk(htmlDir):
         for file in files:
-            if file.endswith('.html'):
+            ending = '.html'
+            if file.endswith(ending):
                 noteHtmlFiles.append(os.path.join(root, file))
+                json_file = os.path.join(root, file[:-len(ending)] + '.json')
+                jsonFiles.append(os.path.join(root, json_file))
+                print(json_file)
+
 
     print ('Found {} notes'.format(len(noteHtmlFiles)))
     
-    return noteHtmlFiles
+    return noteHtmlFiles, jsonFiles
 
 def getHtmlValueIfMatches(line, tag, endTag):
     if tag.lower() in line.lower() and endTag.lower() in line.lower():
@@ -120,15 +127,20 @@ def makeSafeFilename(strToPurify):
     return strToPurify
 
 def main(keepHtmlDir, outputDir):
-    noteFiles = getAllNoteHtmlFiles(keepHtmlDir)
+    noteFiles, jsonFiles = getAllNoteHtmlFiles(keepHtmlDir)
 
     noteGroups = {}
     
-    for noteFilePath in noteFiles:
+    for i , noteFilePath in enumerate(noteFiles):
         # Read in the file
         noteFile = open(noteFilePath)
         noteLines = noteFile.readlines()
         noteFile.close()
+
+        jsonFile = open(jsonFiles[i])
+        jsonString = jsonFile.read()
+        jsonFile.close()
+        meta_data = json.loads(jsonString)
 
         # print('Parsing {}'.format(noteFilePath))
 
@@ -145,6 +157,8 @@ def main(keepHtmlDir, outputDir):
             if readState == 'lookingForAny':
                 if '<span class="archived" title="Note archived">' in line:
                     note.archived = True
+                if meta_data['isArchived']:
+                    note.archived = True
                     
                 # Parse title
                 title, isMatch = getHtmlValueIfMatches(line, '<div class="title">', '</div>')
@@ -158,10 +172,11 @@ def main(keepHtmlDir, outputDir):
                     # This isn't great; for same-line bodies, strip opening div
                     line = line.replace('<div class="content">', '')
                 # Parse the date
-                if ' AM</div>' in line or ' PM</div>' in line:
-                    dateString = line.replace('</div>', '').strip()
-                    # Example: "Apr 27, 2018, 6:32:15 PM"
-                    note.date = datetime.datetime.strptime(dateString, '%b %d, %Y, %I:%M:%S %p')
+                note.date = datetime.datetime.fromtimestamp(meta_data['creationTimestampUsec'])
+                # if ' AM</div>' in line or ' PM</div>' in line:
+                #     dateString = line.replace('</div>', '').strip()
+                #     # Example: "Apr 27, 2018, 6:32:15 PM"
+                #     note.date = datetime.datetime.strptime(dateString, '%b %d, %Y, %I:%M:%S %p')
 
                 # Parse tags, if any
                 potentialTag, isMatch = getHtmlValueIfMatches(line, '<span class="label-name">', '</span>')
